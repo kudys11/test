@@ -11,7 +11,7 @@ VMID=120
 HOSTNAME="homarrr"
 MEMORY=2048
 CORES=2
-DISK="8G"
+DISK="8"
 STORAGE="local-lvm"
 TEMPLATE="local:vztmpl/debian-12-standard_12.0-1_amd64.tar.zst"
 
