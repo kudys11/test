@@ -30,6 +30,7 @@ color
 catch_errors
 
 function default_settings() {
+function default_settings() {
   CT_TYPE="1"
   PW=""
   CT_ID=$NEXTID
@@ -43,9 +44,16 @@ function default_settings() {
   APT_CACHER=""
   APT_CACHER_IP=""
   DISABLEIP6="no"
+  MTU=""
+  SD=""
+  NS=""
+  MAC=""
+  VLAN=""
   SSH="no"
   VERB="no"
   echo_default
+}
+
 }
 
 function install_homarr_docker() {
@@ -82,4 +90,5 @@ onfinish() {
   echo -e "${BL}http://${IP}:7575${CL}\n"
 }
 onfinish
+
 
