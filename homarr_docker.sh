@@ -53,6 +53,7 @@ function default_settings() {
   echo_default
 }
 
+
 function install_homarr_docker() {
   msg_info "Instaluję Dockera..."
   apt-get update -y
@@ -87,7 +88,3 @@ onfinish() {
   echo -e "${BL}http://${IP}:7575${CL}\n"
 }
 onfinish
-
-
-
-
