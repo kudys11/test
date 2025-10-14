@@ -41,6 +41,7 @@ function default_settings() {
   NET="dhcp"
   GATE=""
   APT_CACHER=""
+  APT_CACHER_IP=""
   DISABLEIP6="no"
   SSH="no"
   VERB="no"
@@ -81,3 +82,4 @@ onfinish() {
   echo -e "${BL}http://${IP}:7575${CL}\n"
 }
 onfinish
+
