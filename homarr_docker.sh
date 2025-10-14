@@ -30,7 +30,6 @@ color
 catch_errors
 
 function default_settings() {
-function default_settings() {
   CT_TYPE="1"
   PW=""
   CT_ID=$NEXTID
@@ -52,6 +51,8 @@ function default_settings() {
   SSH="no"
   VERB="no"
   echo_default
+}
+
 }
 
 }
@@ -90,5 +91,6 @@ onfinish() {
   echo -e "${BL}http://${IP}:7575${CL}\n"
 }
 onfinish
+
 
 
