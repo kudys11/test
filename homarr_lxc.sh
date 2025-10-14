@@ -13,7 +13,7 @@ MEMORY=2048
 CORES=2
 DISK="8"
 STORAGE="local-lvm"
-TEMPLATE="local:vztmpl/debian-12-standard_12.0-1_amd64.tar.zst"
+TEMPLATE="local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
 
 echo "=== 🧱 Tworzenie kontenera LXC dla Homarr ==="
 
@@ -21,7 +21,7 @@ echo "=== 🧱 Tworzenie kontenera LXC dla Homarr ==="
 if ! pveam list local | grep -q "debian-12-standard"; then
     echo "📦 Pobieranie szablonu Debian 12..."
     pveam update
-    pveam download local debian-12-standard_12.0-1_amd64.tar.zst
+    pveam download local debian-12-standard_12.12-1_amd64.tar.zst
 fi
 
 # --- Tworzenie kontenera ---
