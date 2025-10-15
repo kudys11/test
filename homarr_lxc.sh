@@ -1,69 +1,106 @@
-#!/bin/bash
-# ==============================================================
-#  Skrypt automatycznej instalacji Homarr (Docker) w kontenerze LXC na Proxmox
-#  Autor: ChatGPT (GPT-5)
-# ==============================================================
+#!/usr/bin/env bash
+# create_lxc_for_docker.sh
+# Tworzy LXC (privileged) z dostępem root + instaluje Docker
+# Uruchom jako root na hoście Proxmox
 
 set -e
 
-# --- Konfiguracja ---
+##### ====== KONFIGURACJA (zmień wedle potrzeby) ======
 VMID=120
-HOSTNAME="homarrr"
-MEMORY=2048
+HOSTNAME="homarr"                # nazwa hosta (małymi literami, bez spacji)
+ROOT_PASSWORD="TwojeHaslo123!"   # ustaw swoje bezpieczne hasło
+MEMORY=2048                      # MB
 CORES=2
-DISK="8"
-STORAGE="local-lvm"
-TEMPLATE="local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
+DISK=8                           # GB (tylko liczba, bez G)
+STORAGE="local-lvm"              # storage dla rootfs (np. local-lvm lub local)
+BRIDGE="vmbr0"
+TEMPLATE_NAME="debian-12-standard_12.12-1_amd64.tar.zst"  # zgodne z "pveam available"
+TEMPLATE_STORAGE="local"         # gdzie trzyma się templates (zazwyczaj 'local')
+INSTALL_DOCKER_COMPOSE="yes"     # "yes" lub "no"
+#######################################################
 
-echo "=== 🧱 Tworzenie kontenera LXC dla Homarr ==="
+echo "=== START: Tworzenie kontenera LXC (VMID=$VMID, HOSTNAME=$HOSTNAME) ==="
 
-# --- Sprawdzenie czy obraz istnieje ---
-if ! pveam list local | grep -q "debian-12-standard"; then
-    echo "📦 Pobieranie szablonu Debian 12..."
-    pveam update
-    pveam download local debian-12-standard_12.12-1_amd64.tar.zst
+# 1) sprawdź czy template jest dostępny w local cache, jeśli nie pobierz
+if ! ls /var/lib/vz/template/cache/ | grep -qx "$TEMPLATE_NAME"; then
+  echo "Szablon $TEMPLATE_NAME nie znaleziony w /var/lib/vz/template/cache/. Pobieram..."
+  pveam update
+  pveam download $TEMPLATE_STORAGE $TEMPLATE_NAME
+else
+  echo "Szablon $TEMPLATE_NAME jest dostępny."
 fi
 
-# --- Tworzenie kontenera ---
-echo "🚀 Tworzenie kontenera LXC ($HOSTNAME)..."
-pct create $VMID $TEMPLATE \
-    --hostname $HOSTNAME \
-    --cores $CORES \
-    --memory $MEMORY \
-    --swap 512 \
-    --net0 name=eth0,bridge=vmbr0,ip=dhcp \
-    --rootfs $STORAGE:$DISK \
-    --unprivileged 1 \
-    --features nesting=1 \
-    --ostype debian \
-    --start 1
+# 2) jeśli już istnieje kontener o tym VMID, przerwij
+if pct status $VMID >/dev/null 2>&1; then
+  echo "Błąd: kontener o VMID=$VMID już istnieje. Przerwij skrypt lub zmień VMID w konfiguracji."
+  exit 1
+fi
 
-# --- Instalacja Dockera i Homarr ---
-echo "🐳 Instalacja Dockera i Homarr w kontenerze..."
-pct exec $VMID -- bash -c "
-    apt update && apt install -y ca-certificates curl gnupg lsb-release
-    mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    echo \
-      \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" \
-      > /etc/apt/sources.list.d/docker.list
-    apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# 3) utwórz kontener (privileged), z nesting=1 (potrzebne dla Dockera)
+echo "Tworzę kontener LXC..."
+pct create $VMID ${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_NAME} \
+  --hostname "${HOSTNAME}" \
+  --cores ${CORES} \
+  --memory ${MEMORY} \
+  --swap 512 \
+  --net0 name=eth0,bridge=${BRIDGE},ip=dhcp \
+  --rootfs ${STORAGE}:${DISK} \
+  --unprivileged 0 \
+  --features nesting=1,keyctl=1 \
+  --ostype debian \
+  --onboot 1 \
+  --start 1 \
+  --password "${ROOT_PASSWORD}"
+
+echo "Kontener utworzony i wystartowany (jeśli start nie powiódł się, sprawdź 'pct status $VMID')."
+
+# 4) Poczekaj chwilę na pełny start
+sleep 3
+
+# 5) zainstaluj podstawowe pakiety, openssh-server i Dockera wewnątrz kontenera
+echo "Instaluję Dockera i openssh-server wewnątrz kontenera (może to potrwać)..."
+pct exec $VMID -- bash -lc "
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg lsb-release apt-transport-https software-properties-common sudo
+# openssh
+apt-get install -y openssh-server
+# Zezwól na logowanie root hasłem
+sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+systemctl restart ssh || true
+
+# Instalacja Dockera (oficjalny skrypt)
+curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+sh /tmp/get-docker.sh
+usermod -aG docker root || true
+
+# (opcjonalnie) docker compose plugin
+if [ \"${INSTALL_DOCKER_COMPOSE}\" = \"yes\" ]; then
+  apt-get install -y docker-compose-plugin || true
+fi
+
+# Utwórz przykładowe katalogi pod kontenery
+mkdir -p /opt/homarr/appdata
+chown -R root:root /opt/homarr
 "
 
-# --- Uruchomienie kontenera i pobranie Homarr ---
-echo "🧩 Uruchamianie Homarr..."
-pct exec $VMID -- bash -c "
-    docker run -d \
-        --name homarr \
-        --restart unless-stopped \
-        -p 7575:7575 \
-        -v /opt/homarr/configs:/app/data/configs \
-        -v /opt/homarr/icons:/app/public/icons \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        ghcr.io/ajnart/homarr:latest
-"
+echo "Docker i (opcjonalnie) docker-compose zainstalowane."
 
-echo "✅ Homarr został zainstalowany i uruchomiony w kontenerze $HOSTNAME"
-echo "🌍 Otwórz w przeglądarce: http://<IP_KONTENERA>:7575"
-echo "💡 Aby sprawdzić IP: pct exec $VMID -- hostname -I"
+# 6) wyświetl IP kontenera (pierwszy adres)
+IP_ADDR=$(pct exec $VMID -- bash -lc "hostname -I 2>/dev/null | awk '{print \$1}'" || true)
+
+echo "==== GOTOWE ===="
+echo "Kontener VMID: $VMID"
+echo "Hostname: $HOSTNAME"
+echo "Root password: (ustawiłeś w skrypcie)"
+if [ -n \"$IP_ADDR\" ]; then
+  echo "IP kontenera: $IP_ADDR"
+  echo "Możesz połączyć się po SSH: ssh root@$IP_ADDR"
+else
+  echo "Nie udało się automatycznie odczytać IP. Sprawdź: pct exec $VMID -- hostname -I"
+fi
+
+echo "Aby uruchomić Dockera wewnątrz kontenera użyj: pct exec $VMID -- docker ps"
+echo "Jeśli chcesz, mogę przygotować gotowy docker run / docker-compose dla Homarr (powiadom mnie i podaj SECRET_ENCRYPTION_KEY)."
